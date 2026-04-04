@@ -35,9 +35,9 @@ team_members = {"blue": [], "red": [], "green": [], "yellow": []}
 
 TEXTS = {
     "welcome_uz": "\u26bd <b>Futbol ligasiga xush kelibsiz!</b>\n\nTilni tanlang:",
-    "welcome_ru": "\u26bd <b>Dobro pozhalovat v futbolnuyu ligu!</b>\n\nVyberite yazyk:",
+    "welcome_ru": "\u26bd <b>Добро пожаловать в футбольную лигу!</b>\n\nВыберите язык:",
     "ask_name_uz": "Ismingizni kiriting:",
-    "ask_name_ru": "Vvedite vashe imya:",
+    "ask_name_ru": "Введите ваще имя:",
     "ask_phone_uz": "Telefon raqamingizni yuboring:",
     "ask_phone_ru": "Otpravte vash nomer telefona:",
     "ask_team_uz": "Qaysi jamoani tanlaysiz?",
