@@ -13,9 +13,9 @@ from datetime import datetime
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-DIRECTOR_CHAT_ID = int(os.environ.get("DIRECTOR_CHAT_ID", "0"))
-ADMIN_IDS = [int(x) for x in os.environ.get("ADMIN_IDS", "0").split(",") if x.strip()]
+BOT_TOKEN = "8246944384:AAGnr7n4dzx4AEBip8GG5NXzu8HIV7B9-8E"
+DIRECTOR_CHAT_ID = 7504925076
+ADMIN_IDS = [6663841273]
 
 MAX_SLOTS = 20
 TEAM_MAX = 5
