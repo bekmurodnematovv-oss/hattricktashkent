@@ -22,10 +22,10 @@ TEAM_MAX = 5
 PRICE_UZS = 150000
 
 TEAMS = {
-    "blue":   {"name_uz": "\U0001f535 Kok jamoa",    "name_ru": "\U0001f535 Sinyaya komanda"},
-    "red":    {"name_uz": "\U0001f534 Qizil jamoa",  "name_ru": "\U0001f534 Krasnaya komanda"},
-    "green":  {"name_uz": "\U0001f7e2 Yashil jamoa", "name_ru": "\U0001f7e2 Zelyonaya komanda"},
-    "yellow": {"name_uz": "\U0001f7e1 Sariq jamoa",  "name_ru": "\U0001f7e1 Zhyoltaya komanda"},
+    "blue":   {"name_uz": "\U0001f535 Kok jamoa",    "name_ru": "\U0001f535 Синяя команда"},
+    "red":    {"name_uz": "\U0001f534 Qizil jamoa",  "name_ru": "\U0001f534 Красная команда"},
+    "green":  {"name_uz": "\U0001f7e2 Yashil jamoa", "name_ru": "\U0001f7e2 Зеленная команда"},
+    "yellow": {"name_uz": "\U0001f7e1 Sariq jamoa",  "name_ru": "\U0001f7e1 Желная команда"},
 }
 
 LANG, NAME, PHONE, TEAM, SCREENSHOT = range(5)
