@@ -8,7 +8,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, filters, ContextTypes
 )
-from datetime import datetime
+from datetime import datetime, date
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,68 +21,149 @@ MAX_SLOTS = 20
 TEAM_MAX = 5
 PRICE_UZS = 150000
 
-TEAMS = {
-    "blue":   {"name_uz": "\U0001f535 Kok jamoa",    "name_ru": "\U0001f535 Синяя команда"},
-    "red":    {"name_uz": "\U0001f534 Qizil jamoa",  "name_ru": "\U0001f534 Красная команда"},
-    "green":  {"name_uz": "\U0001f7e2 Yashil jamoa", "name_ru": "\U0001f7e2 Зеленная команда"},
-    "yellow": {"name_uz": "\U0001f7e1 Sariq jamoa",  "name_ru": "\U0001f7e1 Желная команда"},
+# ─── Stadiums ──────────────────────────────────────────────────────────────────
+STADIUMS = {
+    "s263": {
+        "name_uz": "🏟 263-stadion (Yunusobod) — 18:00",
+        "name_ru": "🏟 263 стадион (Юнусабад) — 18:00",
+    },
+    "s113": {
+        "name_uz": "🏟 113-stadion (Sergeli) — 20:00",
+        "name_ru": "🏟 113 стадион (Сергели) — 20:00",
+    },
+    "s311": {
+        "name_uz": "🏟 311-stadion (Chilonzor) — 22:00",
+        "name_ru": "🏟 311 стадион (Чиланзар) — 22:00",
+    },
 }
 
-LANG, NAME, PHONE, TEAM, SCREENSHOT = range(5)
-players = {}
-pending_payments = {}
+# ─── Teams ─────────────────────────────────────────────────────────────────────
+TEAMS = {
+    "blue":   {"name_uz": "🔵 Ko'k jamoa",    "name_ru": "🔵 Синяя команда"},
+    "red":    {"name_uz": "🔴 Qizil jamoa",   "name_ru": "🔴 Красная команда"},
+    "green":  {"name_uz": "🟢 Yashil jamoa",  "name_ru": "🟢 Зелёная команда"},
+    "yellow": {"name_uz": "🟡 Sariq jamoa",   "name_ru": "🟡 Жёлтая команда"},
+}
+
+# ─── Conversation states ────────────────────────────────────────────────────────
+LANG, NAME, PHONE, STADIUM, TEAM, SCREENSHOT = range(6)
+
+# ─── Storage ───────────────────────────────────────────────────────────────────
+players = {}           # uid -> player data
+pending_payments = {}  # uid -> pending data
 team_members = {"blue": [], "red": [], "green": [], "yellow": []}
 
+# Tracks the game date each player registered for (for daily reset logic)
+# uid -> date string "YYYY-MM-DD"
+player_game_date = {}
+
+# ─── Texts ─────────────────────────────────────────────────────────────────────
 TEXTS = {
-    "welcome_uz": "\u26bd <b>Futbol ligasiga xush kelibsiz!</b>\n\nTilni tanlang:",
-    "welcome_ru": "\u26bd <b>Добро пожаловать в футбольную лигу!</b>\n\nВыберите язык:",
+    "welcome_uz": "⚽ <b>Futbol ligasiga xush kelibsiz!</b>\n\nTilni tanlang:",
+    "welcome_ru": "⚽ <b>Добро пожаловать в футбольную лигу!</b>\n\nВыберите язык:",
     "ask_name_uz": "Ismingizni kiriting:",
-    "ask_name_ru": "Введите ваще имя:",
+    "ask_name_ru": "Введите ваше имя:",
     "ask_phone_uz": "Telefon raqamingizni yuboring:",
-    "ask_phone_ru": "Отправите ваш номер телефона:",
+    "ask_phone_ru": "Отправьте ваш номер телефона:",
+    "ask_stadium_uz": "Qaysi stadion sizga qulay?",
+    "ask_stadium_ru": "Какой стадион вам больше подходит?",
     "ask_team_uz": "Qaysi jamoani tanlaysiz?",
     "ask_team_ru": "Выберите команду:",
-    "team_full_uz": "\u274c Bu jamoa tolgan. Boshqa jamoani tanlang.",
-    "team_full_ru": "\u274c Это команда заполнена. Выберите другую.",
-    "no_slots_uz": "\U0001f614 Barcha orinlar band.",
-    "no_slots_ru": "\U0001f614 Все места заняты.",
-    "payment_uz": "\U0001f4b3 <b>Tolov</b>\n\nSumma: <b>45,000 som</b>\n\n- Click: 8600 4904 1734 5204\n- Payme: 8600 4904 1734 5204\n\nTolovdan song skrinshot yuboring.",
-    "payment_ru": "\U0001f4b3 <b>Oplata</b>\n\nSumma: <b>45,000 sum</b>\n\n- Click: 8600 4904 1734 5204\n- Payme: 8600 4904 1734 5204\n\nPosle oplaty otpravte skrinshot.",
-    "received_uz": "\u2705 Skrinshot qabul qilindi. Kuting...",
-    "received_ru": "\u2705 Skrinshot polucen. Ojidayte...",
-    "confirmed_uz": "\U0001f389 <b>Tabriklaymiz!</b> Siz jamoaga qoshildingiz!",
-    "confirmed_ru": "\U0001f389 <b>Pozdravlyaem!</b> Vy dobavleny v komandu!",
-    "rejected_uz": "\u274c Tolov tasdiqlanmadi. Qayta urining.",
-    "rejected_ru": "\u274c Platezh ne podtverzhden. Povtorite.",
-    "already_uz": "\u2139\ufe0f Siz allaqachon royxatdan otgansiz.",
-    "already_ru": "\u2139\ufe0f Vy uzhe zaregistrirovany.",
-    "help_uz": "\u2139\ufe0f <b>Yordam</b>\n\n/start - Royxatdan otish\n/slots - Bosh orinlar\n/mystatus - Holatim",
-    "help_ru": "\u2139\ufe0f <b>Pomosh</b>\n\n/start - Registraciya\n/slots - Svobodnye mesta\n/mystatus - Moy status",
-    "status_yes_uz": "\u2705 <b>Royxatdan otgansiz</b>",
-    "status_yes_ru": "\u2705 <b>Vy zaregistrirovany</b>",
-    "status_pending_uz": "\u23f3 Tolovingiz korib chiqilmoqda...",
-    "status_pending_ru": "\u23f3 Platezh na rassmotrenii...",
-    "status_no_uz": "\u274c Royxatdan otmagansiz. /start yuboring.",
-    "status_no_ru": "\u274c Ne zaregistrirovany. Otpravte /start.",
+    "team_full_uz": "❌ Bu jamoa to'lgan. Boshqa jamoani tanlang.",
+    "team_full_ru": "❌ Эта команда заполнена. Выберите другую.",
+    "no_slots_uz": "😔 Barcha o'rinlar band.",
+    "no_slots_ru": "😔 Все места заняты.",
+    "payment_uz": (
+        "💳 <b>To'lov</b>\n\n"
+        "Summa: <b>150,000 so'm</b>\n\n"
+        "• Click: 8600 4904 1734 5204\n"
+        "• Payme: 8600 4904 1734 5204\n\n"
+        "To'lovdan so'ng skrinshot yuboring."
+    ),
+    "payment_ru": (
+        "💳 <b>Оплата</b>\n\n"
+        "Сумма: <b>150,000 сум</b>\n\n"
+        "• Click: 8600 4904 1734 5204\n"
+        "• Payme: 8600 4904 1734 5204\n\n"
+        "После оплаты отправьте скриншот."
+    ),
+    "received_uz": "✅ Skrinshot qabul qilindi. Admin tasdiqlashini kuting...",
+    "received_ru": "✅ Скриншот получен. Ожидайте подтверждения...",
+    "confirmed_uz": "🎉 <b>Tabriklaymiz!</b> To'lovingiz tasdiqlandi va siz jamoaga qo'shildingiz!",
+    "confirmed_ru": "🎉 <b>Поздравляем!</b> Ваш платёж подтверждён, вы добавлены в команду!",
+    "rejected_uz": "❌ To'lov tasdiqlanmadi. Qayta urinib ko'ring yoki admin bilan bog'laning.",
+    "rejected_ru": "❌ Платёж не подтверждён. Попробуйте снова или свяжитесь с администратором.",
+    "already_uz": "ℹ️ Siz bugungi o'yin uchun allaqachon ro'yxatdan o'tgansiz.",
+    "already_ru": "ℹ️ Вы уже зарегистрированы на сегодняшнюю игру.",
+    "help_uz": (
+        "ℹ️ <b>Yordam</b>\n\n"
+        "/start — Ro'yxatdan o'tish\n"
+        "/slots — Bo'sh o'rinlar\n"
+        "/mystatus — Mening holatim\n"
+        "/help — Yordam"
+    ),
+    "help_ru": (
+        "ℹ️ <b>Помощь</b>\n\n"
+        "/start — Регистрация\n"
+        "/slots — Свободные места\n"
+        "/mystatus — Мой статус\n"
+        "/help — Помощь"
+    ),
+    "status_yes_uz": "✅ <b>Ro'yxatdan o'tgansiz</b>",
+    "status_yes_ru": "✅ <b>Вы зарегистрированы</b>",
+    "status_pending_uz": "⏳ To'lovingiz ko'rib chiqilmoqda...",
+    "status_pending_ru": "⏳ Ваш платёж на рассмотрении...",
+    "status_no_uz": "❌ Ro'yxatdan o'tmagansiz. /start yuboring.",
+    "status_no_ru": "❌ Вы не зарегистрированы. Отправьте /start.",
 }
+
+# ─── Helpers ───────────────────────────────────────────────────────────────────
 
 def get_lang(context): return context.user_data.get("lang", "uz")
 def t(key, context): return TEXTS[key + "_" + get_lang(context)]
 def total_registered(): return sum(len(v) for v in team_members.values())
 def available_slots(): return MAX_SLOTS - total_registered()
+def today_str(): return date.today().isoformat()
+
+def is_registered_today(uid: int) -> bool:
+    """Returns True only if the player registered TODAY and is confirmed."""
+    if uid not in players:
+        return False
+    if not players[uid].get("confirmed"):
+        return False
+    return player_game_date.get(uid) == today_str()
+
+def reset_player_if_new_day(uid: int):
+    """If the player's last registration was a previous day, clear their data so they can re-register."""
+    if uid in players and player_game_date.get(uid, "") != today_str():
+        # Remove from team
+        team = players[uid].get("team")
+        if team and uid in team_members.get(team, []):
+            team_members[team].remove(uid)
+        del players[uid]
+        player_game_date.pop(uid, None)
+        pending_payments.pop(uid, None)
+        logger.info(f"Player {uid} reset for new day.")
 
 def team_status(lang):
     lines = []
     for key, team in TEAMS.items():
         count = len(team_members[key])
-        lines.append(team["name_" + lang] + ": " + "\U0001f7e9"*count + "\u2b1c"*(TEAM_MAX-count) + " " + str(count) + "/" + str(TEAM_MAX))
+        bar = "🟩" * count + "⬜" * (TEAM_MAX - count)
+        lines.append(f"{team['name_' + lang]}: {bar} {count}/{TEAM_MAX}")
     return "\n".join(lines)
 
 def lang_kb():
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Uzbekcha", callback_data="lang_uz"),
-        InlineKeyboardButton("Russkiy", callback_data="lang_ru")
+        InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang_uz"),
+        InlineKeyboardButton("🇷🇺 Русский",   callback_data="lang_ru"),
     ]])
+
+def stadium_kb(lang):
+    buttons = []
+    for key, stadium in STADIUMS.items():
+        buttons.append([InlineKeyboardButton(stadium["name_" + lang], callback_data="stad_" + key)])
+    return InlineKeyboardMarkup(buttons)
 
 def team_kb(lang):
     buttons = []
@@ -90,24 +171,35 @@ def team_kb(lang):
         count = len(team_members[key])
         name = team["name_" + lang]
         if count < TEAM_MAX:
-            buttons.append([InlineKeyboardButton(name + " (" + str(count) + "/" + str(TEAM_MAX) + ")", callback_data="team_" + key)])
+            buttons.append([InlineKeyboardButton(f"{name}  ({count}/{TEAM_MAX})", callback_data="team_" + key)])
         else:
-            buttons.append([InlineKeyboardButton(name + " FULL", callback_data="team_full")])
+            buttons.append([InlineKeyboardButton(f"{name}  ✗ FULL", callback_data="team_full")])
     return InlineKeyboardMarkup(buttons)
 
 def phone_kb(lang):
-    label = "Raqamni yuborish" if lang == "uz" else "Otpravit nomer"
+    label = "📱 Raqamni yuborish" if lang == "uz" else "📱 Отправить номер"
     return ReplyKeyboardMarkup([[KeyboardButton(label, request_contact=True)]], resize_keyboard=True, one_time_keyboard=True)
+
+# ─── Handlers ──────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if uid in players and players[uid].get("confirmed"):
+
+    # Reset if new day
+    reset_player_if_new_day(uid)
+
+    if is_registered_today(uid):
         await update.message.reply_text(t("already", context), parse_mode="HTML")
         return ConversationHandler.END
+
     if available_slots() <= 0:
         await update.message.reply_text(TEXTS["no_slots_uz"], parse_mode="HTML")
         return ConversationHandler.END
-    await update.message.reply_text(TEXTS["welcome_uz"] + "\n\n" + TEXTS["welcome_ru"], reply_markup=lang_kb(), parse_mode="HTML")
+
+    await update.message.reply_text(
+        TEXTS["welcome_uz"] + "\n\n" + TEXTS["welcome_ru"],
+        reply_markup=lang_kb(), parse_mode="HTML"
+    )
     return LANG
 
 async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,10 +220,33 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return PHONE
 
 async def get_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["phone"] = update.message.contact.phone_number if update.message.contact else update.message.text.strip()
+    context.user_data["phone"] = (
+        update.message.contact.phone_number if update.message.contact
+        else update.message.text.strip()
+    )
+    await update.message.reply_text(
+        t("ask_stadium", context),
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    await update.message.reply_text(
+        t("ask_stadium", context),
+        reply_markup=stadium_kb(get_lang(context))
+    )
+    return STADIUM
+
+async def choose_stadium(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    stad_key = query.data.split("_", 1)[1]
+    context.user_data["stadium"] = stad_key
     lang = get_lang(context)
-    await update.message.reply_text(t("ask_team", context), reply_markup=ReplyKeyboardRemove())
-    await update.message.reply_text(team_status(lang), reply_markup=team_kb(lang))
+    stad_name = STADIUMS[stad_key]["name_" + lang]
+    await query.edit_message_text(
+        f"{'Tanlangan' if lang == 'uz' else 'Выбран'}: {stad_name}\n\n{t('ask_team', context)}",
+        reply_markup=team_kb(lang),
+        parse_mode="HTML"
+    )
     return TEAM
 
 async def choose_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,77 +267,128 @@ async def receive_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user = update.effective_user
     uid = user.id
     if not (update.message.photo or update.message.document):
-        await update.message.reply_text("Skrinshot yuboring / Otpravte skrinshot.")
+        await update.message.reply_text("📸 Skrinshot yuboring / Отправьте скриншот.")
         return SCREENSHOT
+
+    lang = get_lang(context)
+    stad_key = context.user_data.get("stadium", "")
+    stad_name = STADIUMS[stad_key]["name_" + lang] if stad_key in STADIUMS else "—"
+
     pending_payments[uid] = {
-        "name": context.user_data.get("name"),
-        "phone": context.user_data.get("phone"),
-        "team": context.user_data.get("team"),
-        "lang": get_lang(context),
-        "user_id": uid,
-        "username": user.username or "-"
+        "name":     context.user_data.get("name"),
+        "phone":    context.user_data.get("phone"),
+        "team":     context.user_data.get("team"),
+        "stadium":  stad_key,
+        "lang":     lang,
+        "user_id":  uid,
+        "username": user.username or "—",
     }
+
     await update.message.reply_text(t("received", context), parse_mode="HTML")
+
     p = pending_payments[uid]
-    caption = "\U0001f4b0 Yangi tolov\n\nIsm: " + p["name"] + "\nTel: " + p["phone"] + "\nJamoa: " + TEAMS[p["team"]]["name_uz"] + "\n@" + p["username"]
+    caption = (
+        f"💰 <b>Yangi to'lov / Новый платёж</b>\n\n"
+        f"👤 {p['name']}\n"
+        f"📱 {p['phone']}\n"
+        f"🏟 {stad_name}\n"
+        f"🎽 {TEAMS[p['team']]['name_uz']}\n"
+        f"🔗 @{p['username']}"
+    )
     buttons = InlineKeyboardMarkup([[
-        InlineKeyboardButton("Tasdiqlash", callback_data="confirm_" + str(uid)),
-        InlineKeyboardButton("Rad etish", callback_data="reject_" + str(uid))
+        InlineKeyboardButton("✅ Tasdiqlash", callback_data="confirm_" + str(uid)),
+        InlineKeyboardButton("❌ Rad etish",  callback_data="reject_"  + str(uid)),
     ]])
+
     for admin_id in ADMIN_IDS:
         try:
             if update.message.photo:
-                await context.bot.send_photo(admin_id, update.message.photo[-1].file_id, caption=caption, reply_markup=buttons)
+                await context.bot.send_photo(admin_id, update.message.photo[-1].file_id, caption=caption, parse_mode="HTML", reply_markup=buttons)
             else:
-                await context.bot.send_document(admin_id, update.message.document.file_id, caption=caption, reply_markup=buttons)
+                await context.bot.send_document(admin_id, update.message.document.file_id, caption=caption, parse_mode="HTML", reply_markup=buttons)
         except Exception as e:
-            logger.error("Admin notify error: " + str(e))
+            logger.error(f"Admin notify error: {e}")
+
     return ConversationHandler.END
+
+# ─── Admin: confirm / reject ───────────────────────────────────────────────────
 
 async def admin_decision(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if update.effective_user.id not in ADMIN_IDS:
         return
+
     action, uid = query.data.split("_", 1)
     uid = int(uid)
+
     if uid not in pending_payments:
-        await query.edit_message_caption("Allaqachon korib chiqilgan.")
+        await query.edit_message_caption("⚠️ Allaqachon ko'rib chiqilgan.")
         return
+
     player = pending_payments.pop(uid)
     lang = player["lang"]
+    stad_key = player.get("stadium", "")
+    stad_name = STADIUMS[stad_key]["name_" + lang] if stad_key in STADIUMS else "—"
+
     if action == "confirm":
         team_members[player["team"]].append(uid)
-        players[uid] = {**player, "confirmed": True}
+        players[uid] = {**player, "confirmed": True, "confirmed_at": datetime.now().isoformat()}
+        player_game_date[uid] = today_str()  # mark registration date
+
         team_name = TEAMS[player["team"]]["name_" + lang]
-        await context.bot.send_message(uid, TEXTS["confirmed_" + lang] + "\nJamoa: " + team_name, parse_mode="HTML")
-        await query.edit_message_caption("Tasdiqlandi: " + player["name"])
+        msg = (
+            TEXTS["confirmed_" + lang] +
+            f"\n\n🎽 {team_name}\n🏟 {stad_name}"
+        )
+        await context.bot.send_message(uid, msg, parse_mode="HTML")
+        await query.edit_message_caption(f"✅ Tasdiqlandi: {player['name']}")
+
+        # Notify director
         if DIRECTOR_CHAT_ID:
-            msg = "Yangi oyinchi!\n\nIsm: " + player["name"] + "\nTel: " + player["phone"] + "\nJamoa: " + TEAMS[player["team"]]["name_uz"] + "\nJami: " + str(total_registered()) + "/" + str(MAX_SLOTS) + "\nVaqt: " + datetime.now().strftime("%d.%m.%Y %H:%M")
+            director_msg = (
+                f"🆕 <b>Yangi o'yinchi!</b>\n\n"
+                f"👤 {player['name']}\n"
+                f"📱 {player['phone']}\n"
+                f"🏟 {stad_name}\n"
+                f"🎽 {TEAMS[player['team']]['name_uz']}\n"
+                f"📊 Jami: {total_registered()}/{MAX_SLOTS}\n"
+                f"🕐 {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+            )
             try:
-                await context.bot.send_message(DIRECTOR_CHAT_ID, msg)
+                await context.bot.send_message(DIRECTOR_CHAT_ID, director_msg, parse_mode="HTML")
             except Exception as e:
-                logger.error("Director notify error: " + str(e))
+                logger.error(f"Director notify error: {e}")
     else:
         await context.bot.send_message(uid, TEXTS["rejected_" + lang], parse_mode="HTML")
-        await query.edit_message_caption("Rad etildi: " + player["name"])
+        await query.edit_message_caption(f"❌ Rad etildi: {player['name']}")
+
+# ─── Public commands ───────────────────────────────────────────────────────────
 
 async def cmd_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
-    header = "Bosh orinlar: " + str(available_slots()) if lang == "uz" else "Svobodnykh mest: " + str(available_slots())
+    header = f"📊 Bo'sh o'rinlar: {available_slots()}" if lang == "uz" else f"📊 Свободных мест: {available_slots()}"
     await update.message.reply_text(header + "\n\n" + team_status(lang))
 
 async def cmd_mystatus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     lang = get_lang(context)
+    reset_player_if_new_day(uid)
+
     if uid in players and players[uid].get("confirmed"):
         p = players[uid]
         team_name = TEAMS[p["team"]]["name_" + lang]
-        msg = TEXTS["status_yes_" + lang] + "\n\nIsm: " + p["name"] + "\nTel: " + p["phone"] + "\nJamoa: " + team_name
+        stad_key = p.get("stadium", "")
+        stad_name = STADIUMS[stad_key]["name_" + lang] if stad_key in STADIUMS else "—"
+        msg = (
+            TEXTS["status_yes_" + lang] +
+            f"\n\n👤 {p['name']}\n📱 {p['phone']}\n🏟 {stad_name}\n🎽 {team_name}"
+        )
     elif uid in pending_payments:
         msg = TEXTS["status_pending_" + lang]
     else:
         msg = TEXTS["status_no_" + lang]
+
     await update.message.reply_text(msg, parse_mode="HTML")
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -231,40 +397,61 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
-    if not players:
-        await update.message.reply_text("Hozircha hech kim royxatdan otmagan.")
-        return
-    lines = ["Royxatdan otganlar:\n"]
-    for i, (uid, p) in enumerate(players.items(), 1):
-        lines.append(str(i) + ". " + p["name"] + " | " + p["phone"] + " | " + TEAMS[p["team"]]["name_uz"])
-    lines.append("\nJami: " + str(total_registered()) + "/" + str(MAX_SLOTS))
-    await update.message.reply_text("\n".join(lines))
+
+    total = total_registered()
+    lines = [f"📋 <b>Jamoalar ro'yxati</b>  |  Jami: {total}/{MAX_SLOTS}\n"]
+
+    for team_key, team in TEAMS.items():
+        members_uids = team_members[team_key]
+        team_name = team["name_uz"]
+        count = len(members_uids)
+        bar = "🟩" * count + "⬜" * (TEAM_MAX - count)
+        lines.append(f"{team_name}  {bar}  <b>{count}/{TEAM_MAX}</b>")
+
+        if members_uids:
+            for i, uid in enumerate(members_uids, 1):
+                p = players.get(uid)
+                if p:
+                    stad_key = p.get("stadium", "")
+                    stad_name = STADIUMS[stad_key]["name_uz"] if stad_key in STADIUMS else "—"
+                    lines.append(f"  {i}. {p['name']}  |  {p['phone']}  |  {stad_name}")
+        else:
+            lines.append("  — (bo'sh)")
+        lines.append("")  # empty line between teams
+
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_lang(context)
-    await update.message.reply_text("/help yuboring." if lang == "uz" else "Otpravte /help.")
+    await update.message.reply_text("/help yuboring." if lang == "uz" else "Отправьте /help.")
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            LANG:       [CallbackQueryHandler(set_lang, pattern="^lang_")],
+            LANG:       [CallbackQueryHandler(set_lang,        pattern="^lang_")],
             NAME:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
             PHONE:      [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), get_phone)],
-            TEAM:       [CallbackQueryHandler(choose_team, pattern="^team_")],
+            STADIUM:    [CallbackQueryHandler(choose_stadium,  pattern="^stad_")],
+            TEAM:       [CallbackQueryHandler(choose_team,     pattern="^team_")],
             SCREENSHOT: [MessageHandler(filters.PHOTO | filters.Document.ALL, receive_screenshot)],
         },
         fallbacks=[CommandHandler("start", start)],
-        allow_reentry=True
+        allow_reentry=True,
     )
+
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(admin_decision, pattern="^(confirm|reject)_"))
-    app.add_handler(CommandHandler("slots", cmd_slots))
+    app.add_handler(CommandHandler("slots",    cmd_slots))
     app.add_handler(CommandHandler("mystatus", cmd_mystatus))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("list", cmd_list))
+    app.add_handler(CommandHandler("help",     cmd_help))
+    app.add_handler(CommandHandler("list",     cmd_list))
     app.add_handler(MessageHandler(filters.ALL, fallback))
+
     logger.info("Bot is running...")
     app.run_polling(drop_pending_updates=True)
 
